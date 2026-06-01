@@ -1,0 +1,517 @@
+{% extends 'base.html' %}
+
+{% block extra_styles %}
+<link rel="stylesheet" href="/static/styles/inventory.css" />
+{% endblock %}
+
+{% block content %}
+
+<div class="inventory-page">
+
+  <!-- HEADER -->
+
+  <div class="page-header">
+    <div>
+      <h1>Controle de Inventário</h1>
+      <p>
+        Gerencie estoque, importações Excel, movimentações e estoque mínimo.
+      </p>
+    </div>
+
+    <div class="header-actions">
+      <a href="{{ url_for('export_inventory_excel') }}" class="button-secondary">
+        Exportar Excel
+      </a>
+      <a href="{{ url_for('export_inventory_csv') }}" class="button-secondary">
+        Exportar CSV
+      </a>
+      <a href="{{ url_for('inventory_movements') }}" class="button-secondary">
+        Ver movimentações
+      </a>
+    </div>
+  </div>
+
+  <!-- ALERTAS -->
+
+  {% if low_stock_items %}
+  <div class="alert-box">
+    <h3>Itens abaixo do estoque mínimo</h3>
+
+    <ul>
+      {% for item in low_stock_items %}
+      <li>
+        <strong>{{ item.name }}</strong>
+        — Atual: {{ item.quantity }}
+        / Mínimo: {{ item.minimum_quantity }}
+      </li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+
+  <!-- IMPORTAÇÃO DE ARQUIVOS -->
+
+  <div class="card-section">
+
+    <div class="section-header">
+      <h2>Importar arquivo de inventário</h2>
+    </div>
+
+    <form method="POST" action="{{ url_for('import_inventory_file') }}" enctype="multipart/form-data"
+      class="excel-upload-form">
+
+      <div class="form-grid compact-grid">
+
+        <div class="form-group">
+          <label for="data_files">
+            Arquivos CSV/Excel
+          </label>
+
+          <input type="file" id="data_files" name="data_files" accept=".xlsx,.xls,.csv" multiple required />
+        </div>
+
+        <div class="form-group">
+          <label for="import_mode">
+            Modo de importação
+          </label>
+
+          <select classname="form-control" id="import_mode" name="import_mode">
+            <option value="update">Atualizar existentes</option>
+            <option value="insert">Apenas adicionar novos</option>
+            <option value="replace">Substituir todos</option>
+          </select>
+        </div>
+
+      </div>
+
+      <button type="submit" class="button-primary space-top">
+        Importar arquivo
+      </button>
+
+    </form>
+
+  </div>
+
+  <!-- TABELA -->
+
+  <div class="card-section" id="inventory-table-container">
+
+
+    <div class="section-header split-header">
+      <form id="search-form" method="GET" action="{{ url_for('inventory') }}" class="search-form simple-search">
+        <input type="text" name="search" placeholder="Buscar material, categoria ou observação" value="{{ search }}" />
+        <input type="hidden" name="per_page" value="{{ per_page }}" />
+        <button type="submit">Buscar</button>
+      </form>
+
+      <button class="btn-add-item" onclick="openAddItemModal()">
+        + Adicionar Material
+      </button>
+    </div>
+    <div class="section-header split-header">
+
+      <h2>Itens cadastrados</h2>
+      <div class="pagination-links">
+        <a href="{{ url_for('inventory', page=page-1, per_page=per_page, search=search) }}" class="button-secondary" {%
+          if page <=1 %}disabled{% endif %}>Anterior</a>
+        <span>Página {{ page }} de {{ total_pages }}</span>
+        <a href="{{ url_for('inventory', page=page+1, per_page=per_page, search=search) }}" class="button-secondary" {%
+          if page>= total_pages %}disabled{% endif %}>Próxima</a>
+      </div>
+    </div>
+
+    <div class="table-wrapper">
+
+      <table class="inventory-table">
+
+        <thead>
+          <tr>
+            <th>Material</th>
+            <th>Qtd</th>
+            <th>Mínimo</th>
+            <th>Corredor</th>
+            <th>Armário</th>
+            <th>Prateleira</th>
+            <th>Observação</th>
+            <th>Categoria</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+
+        <tbody>
+          {% for item in items %}
+          <tr data-minimum="{{ item.minimum_quantity or 0 }}"
+            class="{% if item.minimum_quantity == 0 or item.quantity <= item.minimum_quantity %}low-stock{% endif %}">
+            <td>{{ item.name }}</td>
+            <td class="quantity-cell">
+              <div class="quantity-actions">
+                <form method="POST" action="{{ url_for('inventory_movement') }}" class="inline-action">
+                  <input type="hidden" name="item_id" value="{{ item.id }}" />
+                  <input type="hidden" name="movement_type" value="entrada" />
+                  <input type="hidden" name="movement_quantity" value="1" />
+                  <input type="hidden" name="movement_reason" value="Ajuste +1" />
+                  <button type="submit" class="small-btn">+</button>
+                </form>
+                <div class="quantity-value">{{ item.quantity }}</div>
+                <form method="POST" action="{{ url_for('inventory_movement') }}" class="inline-action">
+                  <input type="hidden" name="item_id" value="{{ item.id }}" />
+                  <input type="hidden" name="movement_type" value="saida" />
+                  <input type="hidden" name="movement_quantity" value="1" />
+                  <input type="hidden" name="movement_reason" value="Ajuste -1" />
+                  <button type="submit" class="small-btn">-</button>
+                </form>
+              </div>
+            </td>
+            <td>
+              {% if item.minimum_quantity > 0 %}
+              {{ item.minimum_quantity }}
+              {% else %}
+              <form method="POST" action="{{ url_for('inventory_update_meta') }}" class="meta-form">
+                <input type="hidden" name="item_id" value="{{ item.id }}" />
+                <input type="number" name="minimum_quantity" min="0" placeholder="Definir" required />
+                <button type="submit" class="tiny-btn">Salvar</button>
+              </form>
+              {% endif %}
+            </td>
+            <td>{{ item.corridor or '—' }}</td>
+            <td>{{ item.cabinet or '—' }}</td>
+            <td>{{ item.shelf or '—' }}</td>
+            <td>{{ item.description or '—' }}</td>
+            <td>
+              {% if item.category %}
+              {{ item.category }}
+              {% else %}
+              <form method="POST" action="{{ url_for('inventory_update_meta') }}" class="meta-form">
+                <input type="hidden" name="item_id" value="{{ item.id }}" />
+                <input type="text" name="category" placeholder="Definir categoria" required />
+                <button type="submit" class="tiny-btn">Salvar</button>
+              </form>
+              {% endif %}
+            </td>
+            <td class="status-cell">
+              {% if item.minimum_quantity == 0 %}
+              <span class="status-warning">Definir mínimo</span>
+              {% elif item.quantity <= item.minimum_quantity %} <span class="status-critical">Abaixo</span>
+                {% else %}
+                <span class="status-ok">Acima</span>
+                {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+
+    </div>
+
+    <div class="pagination-table">
+      <div class="page-info">
+        Mostrando {{ (page - 1) * per_page + 1 if total_items else 0 }} - {{ [total_items, page * per_page]|min }} de
+        {{
+        total_items }} itens
+      </div>
+
+      <form id="rows-form" method="GET" action="{{ url_for('inventory') }}" class="rows-form">
+        <label for="per_page">Mostrar</label>
+        <select id="per_page" name="per_page">
+          {% for option in per_page_options %}
+          <option value="{{ option }}" {% if option==per_page %}selected{% endif %}>{{ option }}</option>
+          {% endfor %}
+        </select>
+        <input type="hidden" name="search" value="{{ search }}" />
+      </form>
+    </div>
+
+  </div>
+
+</div>
+
+<div id="addItemModal" class="modal-overlay">
+
+  <div class="modal-content">
+
+    <div class="modal-header">
+      <div class="section-header">
+        <h2>Adicionar material</h2>
+        <p>Preencha apenas os campos principais para cadastro rápido.</p>
+      </div>
+
+      <button class="close-modal" onclick="closeAddItemModal()">
+        ×
+      </button>
+    </div>
+
+    <form method="POST" action="{{ url_for('inventory_add') }}" class="compact-form">
+
+      <div class="card-section add-item-card">
+
+        <div>
+
+          <div class="form-grid compact-grid">
+
+            <div class="form-group">
+              <label for="name">Material</label>
+              <input type="text" id="name" name="name" placeholder="Ex: Parafuso M8" required />
+            </div>
+
+            <div class="form-group">
+              <label for="quantity">Quantidade</label>
+              <input type="number" id="quantity" name="quantity" min="0" value="0" required />
+            </div>
+
+            <div class="form-group">
+              <label for="minimum_quantity">Mínimo</label>
+              <input type="number" id="minimum_quantity" name="minimum_quantity" min="0" value="0" />
+            </div>
+
+            <div class="form-group">
+              <label for="category">Categoria</label>
+              <input type="text" id="category" name="category" placeholder="Ex: Eletrica" />
+            </div>
+
+            <div class="form-group">
+              <label for="corridor">Corredor</label>
+              <input type="text" id="corridor" name="corridor" placeholder="Ex: A" />
+            </div>
+
+            <div class="form-group">
+              <label for="cabinet">Armário</label>
+              <input type="text" id="cabinet" name="cabinet" placeholder="Ex: 05" />
+            </div>
+
+            <div class="form-group">
+              <label for="shelf">Prateleira</label>
+              <input type="text" id="shelf" name="shelf" placeholder="Ex: 03" />
+            </div>
+
+            <div class="form-group full-width">
+              <label for="description">Observação</label>
+              <textarea id="description" name="description" rows="3"
+                placeholder="Ex: Caixa, gaveta ou local especial"></textarea>
+            </div>
+
+          </div>
+
+          <button type="submit" class="button-primary space-top">
+            Salvar material
+          </button>
+
+        </div>
+
+      </div>
+
+    </form>
+
+  </div>
+
+</div>
+
+<script>
+  function openAddItemModal() {
+    document
+      .getElementById('addItemModal')
+      .classList.add('open');
+  }
+
+  function closeAddItemModal() {
+    document
+      .getElementById('addItemModal')
+      .classList.remove('open');
+  }
+</script>
+
+<script>
+  window.addEventListener('beforeunload', () => {
+    sessionStorage.setItem('scrollPosition', window.scrollY);
+  });
+
+  window.addEventListener('load', () => {
+    const scrollPosition = sessionStorage.getItem('scrollPosition');
+
+    if (scrollPosition) {
+      window.scrollTo(0, parseInt(scrollPosition));
+      sessionStorage.removeItem('scrollPosition');
+    }
+  });
+</script>
+
+<script>
+  document.addEventListener('DOMContentLoaded', () => {
+
+    async function loadContent(url) {
+
+      try {
+
+        const response = await fetch(url, {
+          headers: {
+            'X-Requested-With': 'XMLHttpRequest'
+          }
+        });
+
+        if (!response.ok) {
+          throw new Error('Erro ao carregar conteúdo');
+        }
+
+        const html = await response.text();
+
+        const parser = new DOMParser();
+
+        const doc = parser.parseFromString(html, 'text/html');
+
+        const newContainer = doc.querySelector('#inventory-table-container');
+
+        const currentContainer = document.querySelector('#inventory-table-container');
+
+        if (!newContainer || !currentContainer) {
+          throw new Error('Container não encontrado');
+        }
+
+        currentContainer.innerHTML = newContainer.innerHTML;
+
+      } catch (error) {
+
+        console.error(error);
+      }
+    }
+
+    document.addEventListener('submit', async (event) => {
+
+      const form = event.target;
+
+      /*
+        ==========================================
+        BUSCA
+        ==========================================
+      */
+
+      if (form.matches('#search-form')) {
+
+        event.preventDefault();
+
+        const params = new URLSearchParams(
+          new FormData(form)
+        );
+
+        loadContent(`${form.action}?${params.toString()}`);
+
+        return;
+      }
+
+      /*
+        ==========================================
+        MOVIMENTAÇÃO + E -
+        ==========================================
+      */
+
+      if (form.matches('.inline-action')) {
+
+        event.preventDefault();
+
+        const formData = new FormData(form);
+
+        try {
+
+          const response = await fetch(form.action, {
+            method: 'POST',
+            body: formData,
+            headers: {
+              'X-Requested-With': 'XMLHttpRequest'
+            }
+          });
+
+          if (!response.ok) {
+            throw new Error('Erro');
+          }
+
+          const result = await response.json();
+
+          if (!result.success) {
+            alert(result.message || 'Erro');
+            return;
+          }
+
+          const row = form.closest('tr');
+
+          if (!row) return;
+
+          const quantityValue = row.querySelector('.quantity-value');
+
+          const statusCell = row.querySelector('.status-cell');
+
+          const minimum = parseInt(
+            row.dataset.minimum || '0',
+            10
+          );
+
+          quantityValue.textContent = result.new_quantity;
+
+          if (minimum === 0) {
+
+            statusCell.innerHTML =
+              '<span class="status-warning">Definir mínimo</span>';
+
+            row.classList.add('low-stock');
+
+          } else if (result.new_quantity <= minimum) {
+
+            statusCell.innerHTML =
+              '<span class="status-critical">Abaixo</span>';
+
+            row.classList.add('low-stock');
+
+          } else {
+
+            statusCell.innerHTML =
+              '<span class="status-ok">Acima</span>';
+
+            row.classList.remove('low-stock');
+          }
+
+        } catch (error) {
+
+          console.error(error);
+        }
+      }
+    });
+
+    /*
+      ==========================================
+      PAGINAÇÃO
+      ==========================================
+    */
+
+    document.addEventListener('click', (event) => {
+
+      const link = event.target.closest('.pagination-links a');
+
+      if (!link) return;
+
+      event.preventDefault();
+
+      loadContent(link.href);
+    });
+
+    /*
+      ==========================================
+      PER PAGE
+      ==========================================
+    */
+
+    document.addEventListener('change', (event) => {
+
+      const select = event.target;
+
+      if (!select.matches('#per_page')) return;
+
+      const form = select.closest('form');
+
+      const params = new URLSearchParams(
+        new FormData(form)
+      );
+
+      loadContent(`${form.action}?${params.toString()}`);
+    });
+
+  });
+</script>
+
+{% endblock %}

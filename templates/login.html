@@ -1,0 +1,52 @@
+{% extends 'base.html' %} {% block body_class %}login-page{% endblock %} {%
+block extra_styles %}
+<link rel="stylesheet" href="/static/styles/login.css" />
+{% endblock %} {% block content %}
+<div class="login-layout">
+  <section class="login-panel">
+    <div class="login-head">
+      <img
+        class="icone-senai-image"
+        src="/static/imagens/SENAI/logo_senai_azul.png"
+        alt="SENAI"
+      />
+    </div>
+    <form method="post">
+      <label for="username">Usuário</label>
+      <input
+        xlass="text-input"
+        type="text"
+        id="username"
+        name="username"
+        placeholder="Digite seu usuário"
+        required
+      />
+
+      <label for="password">Senha</label>
+      <input
+        class="password-input"
+        type="password"
+        id="password"
+        name="password"
+        placeholder="Digite sua senha"
+        required
+      />
+
+      <button type="submit" class="btn btn-primary">Entrar</button>
+    </form>
+
+    <p class="login-note">
+      Utilize seu usuário e senha para acessar o sistema. Caso não possua
+      credenciais, solicite-as ao administrador para criar o usuário.
+    </p>
+  </section>
+
+  <section class="login-visual">
+    <img
+      class="login-visual-image"
+      src="/static/imagens/SENAI/estoque_fundo.png"
+      alt="Estoque"
+    />
+  </section>
+</div>
+{% endblock %}

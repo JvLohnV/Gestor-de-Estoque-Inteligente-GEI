@@ -1,0 +1,143 @@
+{% extends 'base.html' %} {% block extra_styles %}
+<link rel="stylesheet" href="/static/styles/dashboard.css" />
+{% endblock %} {% block content %}
+<section class="content-header">
+  <div>
+    <h1>Dashboard</h1>
+    <p>
+      Visão geral do estoque e acompanhamento rápido dos principais alertas.
+    </p>
+  </div>
+</section>
+
+<div class="home-panels">
+  <section class="panel-card notice-card">
+    <div class="panel-title">
+      <h3>Atenção</h3>
+      <p>Item abaixo do nível mínimo</p>
+    </div>
+    {% if low_stock %}
+    <div class="notice-list">
+      {% for item in low_stock %}
+      <div class="notice-item">
+        <strong>{{ item.name }}</strong>
+        <div class="notice-msg">
+          {% if item.alert_type == 'out_of_stock_no_min' %}
+          <em>Sem estoque</em> — Sem mínimo definido. Defina um mínimo para
+          priorizar reabastecimento. {% elif item.alert_type == 'out_of_stock'
+          %} <em>Sem estoque</em> — Necessita reestoque (mínimo: {{
+          item.minimum_quantity }}). {% elif item.alert_type == 'below_minimum'
+          %} <em>Abaixo do mínimo</em> — Atual: {{ item.quantity }} / Mín: {{
+          item.minimum_quantity }}. {% elif item.alert_type ==
+          'no_minimum_defined' %} <em>Mínimo não definido</em> — Atual: {{
+          item.quantity }}. Considere definir um mínimo. {% else %} Atual: {{
+          item.quantity }} • Mín: {{ item.minimum_quantity }} {% endif %}
+        </div>
+        <div class="notice-meta">
+          {{ item.category or 'Geral' }}{% if item.classification %} /
+          Classificação: {{ item.classification }}{% endif %}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p>Todos os itens estão acima do limite mínimo.</p>
+    {% endif %}
+  </section>
+
+  <section class="panel-card chart-card">
+    <div class="panel-title">
+      <h3>Saúde do Estoque</h3>
+      <p>Status geral dos materiais cadastrados</p>
+    </div>
+
+    <div
+       class="stock-donut"
+        style="
+          --ok: {{ ok_percent }};
+          --below: {{ below_percent }};
+          --no-min: {{ no_minimum_percent }};
+        "
+    >
+        <div class="stock-donut-center">
+          <strong>{{ total_items }}</strong>
+          <span>Itens</span>
+        </div>
+      </div>
+
+      <div class="stock-legend">
+        <div class="legend-item">
+          <span class="legend-color success"></span>
+          <div>
+            <strong>{{ status_ok }}</strong>
+            <small>Acima do mínimo</small>
+          </div>
+        </div>
+
+        <div class="legend-item">
+          <span class="legend-color danger"></span>
+          <div>
+            <strong>{{ status_below }}</strong>
+            <small>Abaixo do mínimo</small>
+          </div>
+        </div>
+
+        <div class="legend-item">
+          <span class="legend-color warning"></span>
+          <div>
+            <strong>{{ status_no_minimum }}</strong>
+            <small>Sem mínimo definido</small>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div class="stats-row">
+    <div class="stat-card">
+      <strong>{{ total_items }}</strong>
+      <span>Itens cadastrados</span>
+    </div>
+    <div class="stat-card">
+      <strong>{{ total_stock }}</strong>
+      <span>Total em estoque</span>
+    </div>
+    <div class="stat-card">
+      <strong>{{ low_stock|length }}</strong>
+      <span>Itens com estoque baixo</span>
+    </div>
+  </div>
+
+  <section class="table-section">
+    <h3>Itens em estoque</h3>
+    <table>
+      <thead>
+        <tr>
+          <th>Nome</th>
+          <th>Categoria</th>
+          <th>Quantidade</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in items[:10] %}
+        <tr>
+          <td>{{ item.name }}</td>
+          <td>{{ item.category }}</td>
+          <td>{{ item.quantity }}</td>
+          <td class="status-cell">
+            {% if item.minimum_quantity == 0 %}
+            <span class="status-warning">Definir mínimo</span>
+            {% elif item.quantity <= item.minimum_quantity %}
+            <span class="status-critical">Abaixo</span>
+            {% else %}
+            <span class="status-ok">Acima</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+  {% endblock %}
+</div>

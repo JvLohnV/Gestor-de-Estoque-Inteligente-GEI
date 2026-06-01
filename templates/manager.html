@@ -1,0 +1,55 @@
+{% extends 'base.html' %}
+
+{% block extra_styles %}
+<link rel="stylesheet" href="/static/styles/dashboard.css" />
+{% endblock %}
+
+{% block content %}
+<section class="content-header">
+  <div>
+    <h1>Gerenciador de Usuários</h1>
+    <p>Controle de acesso, crie novos usuários e ajuste privilégios.</p>
+  </div>
+</section>
+
+<div class="home-panels">
+  <section class="panel-card">
+    <div class="panel-title">
+      <h3>Usuários cadastrados</h3>
+    </div>
+    <div class="notice-list">
+      {% for user in users %}
+      <div class="notice-item">
+        <strong>{{ user.username }}</strong>
+        <span>Perfil: {{ user.role }}</span>
+      </div>
+      {% endfor %}
+    </div>
+  </section>
+
+  <section class="panel-card">
+    <div class="panel-title">
+      <h3>Adicionar usuário</h3>
+      <p>Senhas devem ter 14 caracteres, letras maiúsculas e minúsculas, números e especial.</p>
+    </div>
+    <form method="post" class="form-section">
+      <label for="username">Usuário</label>
+      <input type="text" id="username" name="username" required />
+
+      <label for="password">Senha</label>
+      <input type="password" id="password" name="password" required />
+
+      <label for="confirm_password">Confirme a senha</label>
+      <input type="password" id="confirm_password" name="confirm_password" required />
+
+      <label for="role">Perfil</label>
+      <select id="role" name="role">
+        <option value="user" selected>Usuário padrão</option>
+        <option value="admin">Administrador</option>
+      </select>
+
+      <button type="submit" class="btn btn-primary">Criar usuário</button>
+    </form>
+  </section>
+</div>
+{% endblock %}

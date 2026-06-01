@@ -1,0 +1,125 @@
+{% extends 'base.html' %}
+
+{% block extra_styles %}
+<link rel="stylesheet" href="/static/styles/inventory.css" />
+{% endblock %}
+
+{% block content %}
+
+<div class="inventory-page">
+
+  <div class="page-header">
+    <div>
+      <h1>Movimentações de estoque</h1>
+      <p>Visualize os registros de entrada e saída e acompanhe a tendência semanal.</p>
+    </div>
+
+    <div class="header-actions">
+      <a href="{{ url_for('inventory') }}" class="button-secondary">
+        Voltar ao estoque
+      </a>
+    </div>
+  </div>
+
+  <div class="alert-box">
+    <h3>Resumo de movimentações</h3>
+    <ul>
+      <li><strong>Total de movimentos:</strong> {{ total_movements }}</li>
+      <li><strong>Entradas na semana:</strong> {{ total_entrada }}</li>
+      <li><strong>Saídas na semana:</strong> {{ total_saida }}</li>
+    </ul>
+  </div>
+
+  <div class="card-section">
+    <div class="section-header">
+      <h2>Gráfico semanal</h2>
+      <p>O gráfico mostra o fluxo de materiais das últimas 7 dias.</p>
+    </div>
+
+    <div class="movement-chart">
+      <div class="chart-legend-row">
+        <span><strong>Entrada</strong></span>
+        <span><strong>Saída</strong></span>
+      </div>
+      <div class="bar-chart" id="movementChart"></div>
+    </div>
+  </div>
+
+  <div class="card-section">
+    <div class="section-header">
+      <h2>Histórico recente</h2>
+      <p>Últimas 100 movimentações registradas.</p>
+    </div>
+
+    <div class="table-wrapper">
+      <table class="movement-table">
+        <thead>
+          <tr>
+            <th>Item</th>
+            <th>Tipo</th>
+            <th>Quantidade</th>
+            <th>Antes</th>
+            <th>Depois</th>
+            <th>Motivo</th>
+            <th>Data</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for movement in recent_movements %}
+          <tr>
+            <td>{{ movement.item_name }}</td>
+            <td>{{ movement.type }}</td>
+            <td>{{ movement.quantity }}</td>
+            <td>{{ movement.previous_quantity }}</td>
+            <td>{{ movement.new_quantity }}</td>
+            <td>{{ movement.reason or '—' }}</td>
+            <td>{{ movement.created_at }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  const labels = JSON.parse('{{ movement_chart_labels|safe }}');
+  const entrada = JSON.parse('{{ movement_chart_entrada|safe }}');
+  const saida = JSON.parse('{{ movement_chart_saida|safe }}');
+  const chart = document.getElementById('movementChart');
+  if (!chart) return;
+  const maxValue = Math.max(...entrada, ...saida, 1);
+  labels.forEach(function(label, index) {
+    const barDay = document.createElement('div');
+    barDay.className = 'bar-day';
+
+    const barWrapper = document.createElement('div');
+    barWrapper.className = 'bar-wrapper';
+
+    const entryBar = document.createElement('div');
+    entryBar.className = 'bar-entry';
+    entryBar.style.height = Math.round((entrada[index] / maxValue) * 100) + '%';
+    entryBar.title = `Entrada: ${entrada[index]}`;
+
+    const exitBar = document.createElement('div');
+    exitBar.className = 'bar-exit';
+    exitBar.style.height = Math.round((saida[index] / maxValue) * 100) + '%';
+    exitBar.title = `Saída: ${saida[index]}`;
+
+    barWrapper.appendChild(entryBar);
+    barWrapper.appendChild(exitBar);
+
+    const barLabel = document.createElement('div');
+    barLabel.className = 'bar-day-label';
+    barLabel.textContent = label;
+
+    barDay.appendChild(barWrapper);
+    barDay.appendChild(barLabel);
+    chart.appendChild(barDay);
+  });
+});
+</script>
+
+{% endblock %}
