@@ -179,3 +179,22 @@ cython_debug/
 #  refer to https://docs.cursor.com/context/ignore-files
 .cursorignore
 .cursorindexingignore
+
+# Banco
+gei_database.db
+
+# Uploads
+uploads/
+
+# Exportações
+inventory_export.csv
+
+# Ambiente virtual
+venv/
+.venv/
+
+# Variáveis
+.env
+
+# Banco de dados
+*.db
