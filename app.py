@@ -245,26 +245,31 @@ def import_inventory_file():
     imported = 0
     updated = 0
 
-    for file in files:
-        if file and '.' in file.filename:
-            extension = file.filename.rsplit('.', 1)[1].lower()
-            if extension not in {'xlsx', 'xls', 'csv'}:
-                continue
+    try:
+        for file in files:
+            if file and '.' in file.filename:
+                extension = file.filename.rsplit('.', 1)[1].lower()
+                if extension not in {'xlsx', 'xls', 'csv'}:
+                    continue
 
-            if extension == 'csv':
-                temp_dir = tempfile.gettempdir()
-                os.makedirs(temp_dir, exist_ok=True)
-                filepath = os.path.join(temp_dir, secure_filename(f'{uuid.uuid4()}_{file.filename}'))
-                file.save(filepath)
-                imported_file, updated_file = manager.import_inventory_csv(filepath, import_mode)
-                imported += imported_file
-                updated += updated_file
-            else:
-                imported_file, updated_file = manager.import_inventory_excel([file], import_mode)
-                imported += imported_file
-                updated += updated_file
+                if extension == 'csv':
+                    temp_dir = tempfile.gettempdir()
+                    os.makedirs(temp_dir, exist_ok=True)
+                    filepath = os.path.join(temp_dir, secure_filename(f'{uuid.uuid4()}_{file.filename}'))
+                    file.save(filepath)
+                    imported_file, updated_file = manager.import_inventory_csv(filepath, import_mode)
+                    imported += imported_file
+                    updated += updated_file
+                else:
+                    imported_file, updated_file = manager.import_inventory_excel([file], import_mode)
+                    imported += imported_file
+                    updated += updated_file
 
-    flash(f'Importação concluída. {imported} novos itens e {updated} atualizados.', 'success')
+        flash(f'Importação concluída. {imported} novos itens e {updated} atualizados.', 'success')
+    except Exception as e:
+        app.logger.exception('Erro durante a importação de arquivos')
+        flash('Erro ao importar arquivos: ' + str(e), 'danger')
+
     return redirect(url_for('inventory'))
 
 
