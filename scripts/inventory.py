@@ -301,7 +301,7 @@ class InventoryManager:
         conn.close()
         return success
 
-    def import_inventory_csv(self, csv_filepath, import_mode='update'):
+    def import_inventory_csv(self, csv_filepath, import_mode='update', chunk_size=1000):
         total_imported = 0
         total_updated = 0
 
@@ -309,89 +309,106 @@ class InventoryManager:
             self.clear_inventory()
             import_mode = 'update'
 
-        conn = get_db_connection(self.db_path)
-        cursor = conn.cursor()
-
         if not os.path.isfile(csv_filepath):
-            conn.close()
             return total_imported, total_updated
 
         with open(csv_filepath, newline='', encoding='utf-8') as csvfile:
             reader = csv.DictReader(csvfile)
             if reader.fieldnames:
                 reader.fieldnames = [normalize_column(col) for col in reader.fieldnames]
+            
+            batch_rows = []
             for row in reader:
-                parsed = self._parse_row(row)
-                if not parsed:
-                    continue
+                batch_rows.append(row)
+                if len(batch_rows) >= chunk_size:
+                    imported, updated = self._process_csv_batch(batch_rows, import_mode)
+                    total_imported += imported
+                    total_updated += updated
+                    batch_rows = []
+            
+            # Process remaining rows
+            if batch_rows:
+                imported, updated = self._process_csv_batch(batch_rows, import_mode)
+                total_imported += imported
+                total_updated += updated
 
-                cursor.execute('SELECT * FROM inventory_items WHERE name = ?', (parsed['name'],))
-                existing = cursor.fetchone()
-                if existing:
-                    if import_mode == 'update':
-                        new_quantity = existing['quantity'] + parsed['quantity']
-                        cursor.execute(
-                            '''
-                            UPDATE inventory_items
-                            SET quantity = ?, category = ?, classification = ?, description = ?, corridor = ?, cabinet = ?, shelf = ?, price = ?, code = ?, minimum_quantity = ?, extra_data = ?
-                            WHERE id = ?
-                            ''',
-                            (
-                                new_quantity,
-                                parsed['category'],
-                                parsed['classification'],
-                                parsed['description'],
-                                parsed['corridor'],
-                                parsed['cabinet'],
-                                parsed['shelf'],
-                                parsed['price'],
-                                parsed['code'],
-                                parsed['minimum_quantity'],
-                                parsed['extra_data'],
-                                existing['id'],
-                            )
-                        )
-                        total_updated += 1
-                else:
+        return total_imported, total_updated
+    
+    def _process_csv_batch(self, rows, import_mode):
+        total_imported = 0
+        total_updated = 0
+        conn = get_db_connection(self.db_path)
+        cursor = conn.cursor()
+        
+        for row in rows:
+            parsed = self._parse_row(row)
+            if not parsed:
+                continue
+
+            cursor.execute('SELECT * FROM inventory_items WHERE name = ?', (parsed['name'],))
+            existing = cursor.fetchone()
+            if existing:
+                if import_mode == 'update':
+                    new_quantity = existing['quantity'] + parsed['quantity']
                     cursor.execute(
                         '''
-                        INSERT INTO inventory_items (
-                            code, name, category, classification, quantity,
-                            minimum_quantity, price, corridor, cabinet,
-                            shelf, description, extra_data
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        UPDATE inventory_items
+                        SET quantity = ?, category = ?, classification = ?, description = ?, corridor = ?, cabinet = ?, shelf = ?, price = ?, code = ?, minimum_quantity = ?, extra_data = ?
+                        WHERE id = ?
                         ''',
                         (
-                            parsed['code'],
-                            parsed['name'],
+                            new_quantity,
                             parsed['category'],
                             parsed['classification'],
-                            parsed['quantity'],
-                            parsed['minimum_quantity'],
-                            parsed['price'],
+                            parsed['description'],
                             parsed['corridor'],
                             parsed['cabinet'],
                             parsed['shelf'],
-                            parsed['description'],
+                            parsed['price'],
+                            parsed['code'],
+                            parsed['minimum_quantity'],
                             parsed['extra_data'],
+                            existing['id'],
                         )
                     )
-                    total_imported += 1
-
+                    total_updated += 1
+            else:
+                cursor.execute(
+                    '''
+                    INSERT INTO inventory_items (
+                        code, name, category, classification, quantity,
+                        minimum_quantity, price, corridor, cabinet,
+                        shelf, description, extra_data
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ''',
+                    (
+                        parsed['code'],
+                        parsed['name'],
+                        parsed['category'],
+                        parsed['classification'],
+                        parsed['quantity'],
+                        parsed['minimum_quantity'],
+                        parsed['price'],
+                        parsed['corridor'],
+                        parsed['cabinet'],
+                        parsed['shelf'],
+                        parsed['description'],
+                        parsed['extra_data'],
+                    )
+                )
+                total_imported += 1
+        
         conn.commit()
         conn.close()
         return total_imported, total_updated
 
-    def import_inventory_excel(self, files, import_mode='update'):
+    def import_inventory_excel(self, files, import_mode='update', chunk_size=1000):
         total_imported = 0
         total_updated = 0
 
         if import_mode == 'replace':
             self.clear_inventory()
             import_mode = 'update'
-
-        conn = get_db_connection(self.db_path)
-        cursor = conn.cursor()
 
         for file in files:
             if file and allowed_file(file.filename):
@@ -403,71 +420,85 @@ class InventoryManager:
 
                 for sheet_name in excel_file.sheet_names:
                     try:
-                        df = pd.read_excel(filepath, sheet_name=sheet_name)
-                        df.columns = [normalize_column(col) for col in df.columns]
-                        df = df.dropna(how='all')
-                        if 'name' not in df.columns:
-                            continue
-                        for _, row in df.iterrows():
-                            parsed = self._parse_row(row)
-                            if not parsed:
+                        # Process Excel in chunks using chunksize parameter
+                        for chunk_df in pd.read_excel(filepath, sheet_name=sheet_name, chunksize=chunk_size):
+                            chunk_df.columns = [normalize_column(col) for col in chunk_df.columns]
+                            chunk_df = chunk_df.dropna(how='all')
+                            if 'name' not in chunk_df.columns:
                                 continue
-
-                            cursor.execute('SELECT * FROM inventory_items WHERE name = ?', (parsed['name'],))
-                            existing = cursor.fetchone()
-                            if existing:
-                                if import_mode == 'update':
-                                    new_quantity = existing['quantity'] + parsed['quantity']
-                                    cursor.execute(
-                                        '''
-                                        UPDATE inventory_items
-                                        SET quantity = ?, category = ?, classification = ?, description = ?, corridor = ?, cabinet = ?, shelf = ?, price = ?, code = ?, minimum_quantity = ?, extra_data = ?
-                                        WHERE id = ?
-                                        ''',
-                                        (
-                                            new_quantity,
-                                            parsed['category'],
-                                            parsed['classification'],
-                                            parsed['description'],
-                                            parsed['corridor'],
-                                            parsed['cabinet'],
-                                            parsed['shelf'],
-                                            parsed['price'],
-                                            parsed['code'],
-                                            parsed['minimum_quantity'],
-                                            parsed['extra_data'],
-                                            existing['id'],
-                                        )
-                                    )
-                                    total_updated += 1
-                            else:
-                                cursor.execute(
-                                    '''
-                                    INSERT INTO inventory_items (
-                                        code, name, category, classification, quantity,
-                                        minimum_quantity, price, corridor, cabinet,
-                                        shelf, description, extra_data
-                                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                                    ''',
-                                    (
-                                        parsed['code'],
-                                        parsed['name'],
-                                        parsed['category'],
-                                        parsed['classification'],
-                                        parsed['quantity'],
-                                        parsed['minimum_quantity'],
-                                        parsed['price'],
-                                        parsed['corridor'],
-                                        parsed['cabinet'],
-                                        parsed['shelf'],
-                                        parsed['description'],
-                                        parsed['extra_data'],
-                                    )
-                                )
-                                total_imported += 1
+                            
+                            imported, updated = self._process_excel_batch(chunk_df, import_mode)
+                            total_imported += imported
+                            total_updated += updated
                     except Exception:
                         continue
 
+        return total_imported, total_updated
+    
+    def _process_excel_batch(self, df, import_mode):
+        total_imported = 0
+        total_updated = 0
+        conn = get_db_connection(self.db_path)
+        cursor = conn.cursor()
+        
+        for _, row in df.iterrows():
+            parsed = self._parse_row(row)
+            if not parsed:
+                continue
+
+            cursor.execute('SELECT * FROM inventory_items WHERE name = ?', (parsed['name'],))
+            existing = cursor.fetchone()
+            if existing:
+                if import_mode == 'update':
+                    new_quantity = existing['quantity'] + parsed['quantity']
+                    cursor.execute(
+                        '''
+                        UPDATE inventory_items
+                        SET quantity = ?, category = ?, classification = ?, description = ?, corridor = ?, cabinet = ?, shelf = ?, price = ?, code = ?, minimum_quantity = ?, extra_data = ?
+                        WHERE id = ?
+                        ''',
+                        (
+                            new_quantity,
+                            parsed['category'],
+                            parsed['classification'],
+                            parsed['description'],
+                            parsed['corridor'],
+                            parsed['cabinet'],
+                            parsed['shelf'],
+                            parsed['price'],
+                            parsed['code'],
+                            parsed['minimum_quantity'],
+                            parsed['extra_data'],
+                            existing['id'],
+                        )
+                    )
+                    total_updated += 1
+            else:
+                cursor.execute(
+                    '''
+                    INSERT INTO inventory_items (
+                        code, name, category, classification, quantity,
+                        minimum_quantity, price, corridor, cabinet,
+                        shelf, description, extra_data
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ''',
+                    (
+                        parsed['code'],
+                        parsed['name'],
+                        parsed['category'],
+                        parsed['classification'],
+                        parsed['quantity'],
+                        parsed['minimum_quantity'],
+                        parsed['price'],
+                        parsed['corridor'],
+                        parsed['cabinet'],
+                        parsed['shelf'],
+                        parsed['description'],
+                        parsed['extra_data'],
+                    )
+                )
+                total_imported += 1
+        
         conn.commit()
         conn.close()
         return total_imported, total_updated

@@ -14,6 +14,7 @@ from scripts.manager import UserManager
 
 app = Flask(__name__)
 app.config.from_object(Config)
+app.config['MAX_CONTENT_LENGTH'] = 500 * 1024 * 1024  # 500MB max upload
 app.secret_key = app.config['SECRET_KEY']
 init_db()
 manager = InventoryManager(app.config['DATABASE'])
