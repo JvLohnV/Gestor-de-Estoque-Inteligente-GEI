@@ -2,6 +2,7 @@ import csv
 import json
 import os
 import uuid
+import logging
 import pandas as pd
 from werkzeug.utils import secure_filename
 from models import get_db_connection
@@ -13,6 +14,8 @@ ALLOWED_EXTENSIONS = {'xlsx', 'xls', 'csv'}
 
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(EXPORT_FOLDER, exist_ok=True)
+
+logger = logging.getLogger(__name__)
 
 
 def allowed_file(filename):
@@ -435,8 +438,12 @@ class InventoryManager:
                             imported, updated = self._process_excel_batch(chunk_df, import_mode)
                             total_imported += imported
                             total_updated += updated
-                    except Exception:
-                        # skip problematic sheets but continue with others
+                    except Exception as e:
+                        # log the exception for this sheet and continue with others
+                        try:
+                            logger.exception(f"Error processing sheet {sheet_name} in {filepath}: {e}")
+                        except Exception:
+                            pass
                         continue
 
         return total_imported, total_updated

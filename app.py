@@ -21,6 +21,12 @@ manager = InventoryManager(app.config['DATABASE'])
 dashboard_service = DashboardService(manager)
 user_manager = UserManager(app.config['DATABASE'])
 
+# Log which database path is being used (useful for diagnosing writable path issues on hosts)
+try:
+    app.logger.info(f"Database path in use: {app.config.get('DATABASE')}")
+except Exception:
+    pass
+
 
 @app.context_processor
 def inject_notifications():
@@ -322,6 +328,23 @@ def api_notifications():
         for item in items
     ]
     return jsonify(count=len(simplified), items=simplified)
+
+
+@app.route('/api/db_status', methods=['GET'])
+def api_db_status():
+    token = request.headers.get('X-Admin-Token')
+    if token != app.config.get('SECRET_KEY'):
+        return {'success': False, 'message': 'Unauthorized'}, 401
+    db_path = app.config.get('DATABASE')
+    writable = False
+    try:
+        # try opening for append to test write permission
+        with open(db_path, 'a'):
+            pass
+        writable = True
+    except Exception:
+        writable = False
+    return {'success': True, 'database': db_path, 'writable': writable}
 
 
 if __name__ == '__main__':
