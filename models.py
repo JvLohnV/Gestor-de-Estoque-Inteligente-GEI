@@ -7,15 +7,23 @@ from werkzeug.security import generate_password_hash, check_password_hash
 def get_db_connection(db_path=None):
     if db_path is None:
         db_path = Config.DATABASE
-    conn = sqlite3.connect(db_path)
+    # Use a slightly higher timeout and allow multi-thread access within a process.
+    # Note: multiple gunicorn processes still require careful handling; we set workers=1 in Procfile.
+    conn = sqlite3.connect(db_path, timeout=30, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     return conn
 
 
 def init_db():
     db_path = Config.DATABASE
-    os.makedirs(os.path.dirname(db_path), exist_ok=True)
-    conn = get_db_connection(db_path)
+    # Ensure parent directory exists; if not possible, fall back to temp dir
+    try:
+        os.makedirs(os.path.dirname(db_path), exist_ok=True)
+        conn = get_db_connection(db_path)
+    except Exception:
+        import tempfile
+        fallback = os.path.join(tempfile.gettempdir(), 'gei_database.db')
+        conn = get_db_connection(fallback)
     cursor = conn.cursor()
 
     cursor.execute('''
