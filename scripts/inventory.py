@@ -420,17 +420,23 @@ class InventoryManager:
 
                 for sheet_name in excel_file.sheet_names:
                     try:
-                        # Process Excel in chunks using chunksize parameter
-                        for chunk_df in pd.read_excel(filepath, sheet_name=sheet_name, chunksize=chunk_size):
-                            chunk_df.columns = [normalize_column(col) for col in chunk_df.columns]
-                            chunk_df = chunk_df.dropna(how='all')
-                            if 'name' not in chunk_df.columns:
-                                continue
-                            
+                        # Read the whole sheet, then process in chunks to avoid loading everything into DB transaction
+                        df = pd.read_excel(filepath, sheet_name=sheet_name)
+                        if df is None or df.shape[0] == 0:
+                            continue
+                        df.columns = [normalize_column(col) for col in df.columns]
+                        df = df.dropna(how='all')
+                        if 'name' not in df.columns:
+                            continue
+
+                        # iterate in chunks (DataFrame slicing)
+                        for start in range(0, len(df), chunk_size):
+                            chunk_df = df.iloc[start:start+chunk_size]
                             imported, updated = self._process_excel_batch(chunk_df, import_mode)
                             total_imported += imported
                             total_updated += updated
                     except Exception:
+                        # skip problematic sheets but continue with others
                         continue
 
         return total_imported, total_updated
