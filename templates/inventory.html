@@ -58,7 +58,7 @@
     </div>
 
     <form method="POST" action="{{ url_for('import_inventory_file') }}" enctype="multipart/form-data"
-      class="excel-upload-form">
+      class="excel-upload-form" id="excel-upload-form">
 
       <div class="form-grid compact-grid">
 
@@ -376,6 +376,41 @@
     document.addEventListener('submit', async (event) => {
 
       const form = event.target;
+
+      /*
+        ==========================================
+        IMPORTAÇÃO DE INVENTÁRIO - Confirmação para REPLACE
+        ==========================================
+      */
+
+      if (form.matches('#excel-upload-form')) {
+        const importMode = document.getElementById('import_mode').value;
+        const hasConfirmed = form.querySelector('input[name="confirmed"]');
+
+        if (importMode === 'replace' && !hasConfirmed) {
+          event.preventDefault();
+          
+          const confirmed = window.confirm(
+            '⚠️ ATENÇÃO: Modo SUBSTITUIÇÃO\n\n' +
+            'Isso vai APAGAR TODOS OS ITENS DO INVENTÁRIO ATUAL e substituí-los pelos dados do arquivo.\n\n' +
+            'Esta ação é IRREVERSÍVEL!\n\n' +
+            'Tem certeza que deseja prosseguir?'
+          );
+
+          if (confirmed) {
+            // Add hidden field to confirm
+            const confirmedInput = document.createElement('input');
+            confirmedInput.type = 'hidden';
+            confirmedInput.name = 'confirmed';
+            confirmedInput.value = 'true';
+            form.appendChild(confirmedInput);
+            
+            // Resubmit form
+            form.submit();
+          }
+          return;
+        }
+      }
 
       /*
         ==========================================

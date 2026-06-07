@@ -20,7 +20,12 @@ def main():
 
     if args.reset:
         print('Zerando o banco de dados de inventário...')
-        manager.clear_inventory()
+        try:
+            manager.clear_inventory()
+        except PermissionError as e:
+            print('Operação de limpeza desabilitada:', e)
+            print('Se realmente deseja limpar o inventário, defina a variável de ambiente ALLOW_CLEAR_INVENTORY=1 e tente novamente.')
+            return
 
     file_path = os.path.abspath(args.file)
     if not os.path.isfile(file_path):

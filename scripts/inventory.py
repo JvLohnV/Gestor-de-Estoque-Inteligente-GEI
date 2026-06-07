@@ -5,8 +5,9 @@ import uuid
 import logging
 import pandas as pd
 from werkzeug.utils import secure_filename
-from models import get_db_connection
 from config import Config
+from db import init_engine, get_session
+from models import InventoryItem, StockMovement
 
 UPLOAD_FOLDER = 'uploads/excels'
 EXPORT_FOLDER = 'exports'
@@ -62,7 +63,12 @@ def normalize_column(column):
 
 class InventoryManager:
     def __init__(self, db_path=None):
+        # db_path may be a DB URL or filesystem path; initialize engine if needed
         self.db_path = db_path or Config.DATABASE
+        try:
+            init_engine(self.db_path)
+        except Exception:
+            pass
 
     def _parse_row(self, row):
         parsed = {normalize_column(str(k)): v for k, v in row.items() if k is not None}
@@ -130,7 +136,11 @@ class InventoryManager:
         }
 
     def _row_to_item(self, row):
-        item = dict(row)
+        # Accept either ORM object or mapping
+        if hasattr(row, '__dict__'):
+            item = {k: getattr(row, k) for k in row.__dict__ if not k.startswith('_')}
+        else:
+            item = dict(row)
         try:
             item['extra_data'] = json.loads(item.get('extra_data') or '{}')
         except Exception:
@@ -140,7 +150,10 @@ class InventoryManager:
     def _flatten_items(self, items):
         rows = []
         for item in items:
-            row = dict(item)
+            if hasattr(item, '__dict__'):
+                row = {k: getattr(item, k) for k in item.__dict__ if not k.startswith('_')}
+            else:
+                row = dict(item)
             extra_data = row.pop('extra_data', {}) or {}
             if isinstance(extra_data, str):
                 try:
@@ -153,47 +166,43 @@ class InventoryManager:
         return rows
 
     def clear_inventory(self):
-        conn = get_db_connection(self.db_path)
-        cursor = conn.cursor()
-        cursor.execute('DELETE FROM inventory_items')
-        cursor.execute('DELETE FROM stock_movements')
-        conn.commit()
-        conn.close()
+        # Prevent accidental full wipes: require explicit permission via env var
+        from config import Config
+        if not getattr(Config, 'ALLOW_CLEAR', False):
+            raise PermissionError('Clear inventory is disabled. Set ALLOW_CLEAR_INVENTORY=1 to enable.')
+
+        session = get_session()
+        try:
+            session.query(StockMovement).delete()
+            session.query(InventoryItem).delete()
+            session.commit()
+        finally:
+            session.close()
 
     def get_all_items(self, search=None):
-        conn = get_db_connection(self.db_path)
-        cursor = conn.cursor()
-        if search:
-            pattern = f'%{search}%'
-            cursor.execute(
-                '''
-                SELECT *
-                FROM inventory_items
-                WHERE name LIKE ? OR category LIKE ? OR description LIKE ? OR code LIKE ?
-                ORDER BY name
-                ''',
-                (pattern, pattern, pattern, pattern)
-            )
-        else:
-            cursor.execute('SELECT * FROM inventory_items ORDER BY name')
-        rows = cursor.fetchall()
-        conn.close()
-        return [self._row_to_item(row) for row in rows]
+        session = get_session()
+        try:
+            q = session.query(InventoryItem)
+            if search:
+                pattern = f'%{search}%'
+                q = q.filter(
+                    (InventoryItem.name.ilike(pattern)) |
+                    (InventoryItem.category.ilike(pattern)) |
+                    (InventoryItem.description.ilike(pattern)) |
+                    (InventoryItem.code.ilike(pattern))
+                )
+            rows = q.order_by(InventoryItem.name).all()
+            return [self._row_to_item(row) for row in rows]
+        finally:
+            session.close()
 
     def get_low_stock_items(self):
-        conn = get_db_connection(self.db_path)
-        cursor = conn.cursor()
-        cursor.execute(
-            '''
-            SELECT *
-            FROM inventory_items
-            WHERE quantity <= minimum_quantity
-            ORDER BY quantity ASC
-            '''
-        )
-        rows = cursor.fetchall()
-        conn.close()
-        items = [self._row_to_item(row) for row in rows]
+        session = get_session()
+        try:
+            rows = session.query(InventoryItem).filter(InventoryItem.quantity <= InventoryItem.minimum_quantity).order_by(InventoryItem.quantity.asc()).all()
+            items = [self._row_to_item(row) for row in rows]
+        finally:
+            session.close()
 
         # Annotate each item with an alert type for clearer messaging
         for item in items:
@@ -220,97 +229,92 @@ class InventoryManager:
         return items
 
     def get_recent_movements(self, limit=20):
-        conn = get_db_connection(self.db_path)
-        cursor = conn.cursor()
-        cursor.execute(
-            '''
-            SELECT *
-            FROM stock_movements
-            ORDER BY created_at DESC
-            LIMIT ?
-            ''',
-            (limit,)
-        )
-        rows = cursor.fetchall()
-        conn.close()
-        return [dict(row) for row in rows]
+        session = get_session()
+        try:
+            rows = session.query(StockMovement).order_by(StockMovement.created_at.desc()).limit(limit).all()
+            return [self._row_to_item(row) for row in rows]
+        finally:
+            session.close()
 
     def add_item(self, code, name, category, quantity, minimum_quantity, price, corridor, cabinet, shelf, description, classification='', extra_data=None):
-        conn = get_db_connection(self.db_path)
-        cursor = conn.cursor()
-        cursor.execute(
-            '''
-            INSERT INTO inventory_items (
-                code, name, category, classification, quantity, minimum_quantity, price,
-                corridor, cabinet, shelf, description, extra_data
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ''',
-            (code, name, category, classification, quantity, minimum_quantity, price, corridor, cabinet, shelf, description, json.dumps(extra_data or {}, ensure_ascii=False))
-        )
-        conn.commit()
-        conn.close()
+        session = get_session()
+        try:
+            item = InventoryItem(
+                code=code,
+                name=name,
+                category=category,
+                classification=classification,
+                quantity=quantity,
+                minimum_quantity=minimum_quantity,
+                price=price,
+                corridor=corridor,
+                cabinet=cabinet,
+                shelf=shelf,
+                description=description,
+                extra_data=json.dumps(extra_data or {}, ensure_ascii=False),
+            )
+            session.add(item)
+            session.commit()
+        finally:
+            session.close()
 
     def record_movement(self, item_id, movement_type, movement_quantity, movement_reason):
-        conn = get_db_connection(self.db_path)
-        cursor = conn.cursor()
-        cursor.execute('SELECT * FROM inventory_items WHERE id = ?', (item_id,))
-        item = cursor.fetchone()
-        if not item:
-            conn.close()
-            return False
+        session = get_session()
+        try:
+            item = session.query(InventoryItem).filter_by(id=item_id).first()
+            if not item:
+                return False
 
-        previous_quantity = item['quantity']
-        if movement_type == 'entrada':
-            new_quantity = previous_quantity + movement_quantity
-        elif movement_type == 'saida':
-            new_quantity = previous_quantity - movement_quantity
-            if new_quantity < 0:
-                new_quantity = 0
-        else:
-            new_quantity = movement_quantity
+            previous_quantity = int(item.quantity or 0)
+            if movement_type == 'entrada':
+                new_quantity = previous_quantity + movement_quantity
+            elif movement_type == 'saida':
+                new_quantity = previous_quantity - movement_quantity
+                if new_quantity < 0:
+                    new_quantity = 0
+            else:
+                new_quantity = movement_quantity
 
-        cursor.execute('UPDATE inventory_items SET quantity = ? WHERE id = ?', (new_quantity, item_id))
-        cursor.execute(
-            '''
-            INSERT INTO stock_movements (
-                item_id, item_name, type, quantity,
-                previous_quantity, new_quantity, reason
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)
-            ''',
-            (item_id, item['name'], movement_type, movement_quantity, previous_quantity, new_quantity, movement_reason)
-        )
-        conn.commit()
-        conn.close()
-        return new_quantity
+            item.quantity = new_quantity
+            movement = StockMovement(
+                item_id=item_id,
+                item_name=item.name,
+                type=movement_type,
+                quantity=movement_quantity,
+                previous_quantity=previous_quantity,
+                new_quantity=new_quantity,
+                reason=movement_reason,
+            )
+            session.add(movement)
+            session.commit()
+            return new_quantity
+        finally:
+            session.close()
 
     def update_item_meta(self, item_id, category=None, minimum_quantity=None):
-        conn = get_db_connection(self.db_path)
-        cursor = conn.cursor()
-        updates = []
-        params = []
-        if category is not None:
-            updates.append('category = ?')
-            params.append(category)
-        if minimum_quantity is not None:
-            updates.append('minimum_quantity = ?')
-            params.append(minimum_quantity)
-        if not updates:
-            conn.close()
-            return False
-        params.append(item_id)
-        cursor.execute(f'UPDATE inventory_items SET {", ".join(updates)} WHERE id = ?', params)
-        conn.commit()
-        success = cursor.rowcount > 0
-        conn.close()
-        return success
+        session = get_session()
+        try:
+            item = session.query(InventoryItem).filter_by(id=item_id).first()
+            if not item:
+                return False
+            if category is not None:
+                item.category = category
+            if minimum_quantity is not None:
+                item.minimum_quantity = minimum_quantity
+            session.commit()
+            return True
+        finally:
+            session.close()
 
-    def import_inventory_csv(self, csv_filepath, import_mode='update', chunk_size=1000):
+    def import_inventory_csv(self, csv_filepath, import_mode='update', chunk_size=1000, confirmed=False):
         total_imported = 0
         total_updated = 0
 
         if import_mode == 'replace':
+            if not confirmed:
+                raise PermissionError('Replace mode requires explicit confirmation (confirmed=True). This will delete all existing inventory data.')
             self.clear_inventory()
-            import_mode = 'update'
+            import_mode = 'insert'
 
         if not os.path.isfile(csv_filepath):
             return total_imported, total_updated
@@ -340,78 +344,63 @@ class InventoryManager:
     def _process_csv_batch(self, rows, import_mode):
         total_imported = 0
         total_updated = 0
-        conn = get_db_connection(self.db_path)
-        cursor = conn.cursor()
-        
-        for row in rows:
-            parsed = self._parse_row(row)
-            if not parsed:
-                continue
+        session = get_session()
+        try:
+            for row in rows:
+                parsed = self._parse_row(row)
+                if not parsed:
+                    continue
 
-            cursor.execute('SELECT * FROM inventory_items WHERE name = ?', (parsed['name'],))
-            existing = cursor.fetchone()
-            if existing:
-                if import_mode == 'update':
-                    new_quantity = existing['quantity'] + parsed['quantity']
-                    cursor.execute(
-                        '''
-                        UPDATE inventory_items
-                        SET quantity = ?, category = ?, classification = ?, description = ?, corridor = ?, cabinet = ?, shelf = ?, price = ?, code = ?, minimum_quantity = ?, extra_data = ?
-                        WHERE id = ?
-                        ''',
-                        (
-                            new_quantity,
-                            parsed['category'],
-                            parsed['classification'],
-                            parsed['description'],
-                            parsed['corridor'],
-                            parsed['cabinet'],
-                            parsed['shelf'],
-                            parsed['price'],
-                            parsed['code'],
-                            parsed['minimum_quantity'],
-                            parsed['extra_data'],
-                            existing['id'],
-                        )
+                existing = session.query(InventoryItem).filter_by(name=parsed['name']).first()
+                if existing:
+                    if import_mode == 'update':
+                        # UPDATE mode: Replace all fields with values from CSV (no sum, just replace)
+                        existing.quantity = parsed['quantity']
+                        existing.category = parsed['category']
+                        existing.classification = parsed['classification']
+                        existing.description = parsed['description']
+                        existing.corridor = parsed['corridor']
+                        existing.cabinet = parsed['cabinet']
+                        existing.shelf = parsed['shelf']
+                        existing.price = parsed['price']
+                        existing.code = parsed['code']
+                        existing.minimum_quantity = parsed['minimum_quantity']
+                        existing.extra_data = parsed['extra_data']
+                        total_updated += 1
+                    elif import_mode == 'insert':
+                        # INSERT mode: Skip existing items, only add new ones
+                        pass
+                else:
+                    item = InventoryItem(
+                        code=parsed['code'],
+                        name=parsed['name'],
+                        category=parsed['category'],
+                        classification=parsed['classification'],
+                        quantity=parsed['quantity'],
+                        minimum_quantity=parsed['minimum_quantity'],
+                        price=parsed['price'],
+                        corridor=parsed['corridor'],
+                        cabinet=parsed['cabinet'],
+                        shelf=parsed['shelf'],
+                        description=parsed['description'],
+                        extra_data=parsed['extra_data'],
                     )
-                    total_updated += 1
-            else:
-                cursor.execute(
-                    '''
-                    INSERT INTO inventory_items (
-                        code, name, category, classification, quantity,
-                        minimum_quantity, price, corridor, cabinet,
-                        shelf, description, extra_data
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    ''',
-                    (
-                        parsed['code'],
-                        parsed['name'],
-                        parsed['category'],
-                        parsed['classification'],
-                        parsed['quantity'],
-                        parsed['minimum_quantity'],
-                        parsed['price'],
-                        parsed['corridor'],
-                        parsed['cabinet'],
-                        parsed['shelf'],
-                        parsed['description'],
-                        parsed['extra_data'],
-                    )
-                )
-                total_imported += 1
-        
-        conn.commit()
-        conn.close()
-        return total_imported, total_updated
+                    session.add(item)
+                    total_imported += 1
+            session.commit()
+            return total_imported, total_updated
+        finally:
+            session.close()
 
-    def import_inventory_excel(self, files, import_mode='update', chunk_size=1000):
+    def import_inventory_excel(self, files, import_mode='update', chunk_size=1000, confirmed=False):
         total_imported = 0
         total_updated = 0
 
         if import_mode == 'replace':
+            if not confirmed:
+                raise PermissionError('Replace mode requires explicit confirmation (confirmed=True). This will delete all existing inventory data.')
             self.clear_inventory()
-            import_mode = 'update'
+            import_mode = 'insert'
 
         for file in files:
             if file and allowed_file(file.filename):
@@ -451,70 +440,53 @@ class InventoryManager:
     def _process_excel_batch(self, df, import_mode):
         total_imported = 0
         total_updated = 0
-        conn = get_db_connection(self.db_path)
-        cursor = conn.cursor()
-        
-        for _, row in df.iterrows():
-            parsed = self._parse_row(row)
-            if not parsed:
-                continue
+        session = get_session()
+        try:
+            for _, row in df.iterrows():
+                parsed = self._parse_row(row)
+                if not parsed:
+                    continue
 
-            cursor.execute('SELECT * FROM inventory_items WHERE name = ?', (parsed['name'],))
-            existing = cursor.fetchone()
-            if existing:
-                if import_mode == 'update':
-                    new_quantity = existing['quantity'] + parsed['quantity']
-                    cursor.execute(
-                        '''
-                        UPDATE inventory_items
-                        SET quantity = ?, category = ?, classification = ?, description = ?, corridor = ?, cabinet = ?, shelf = ?, price = ?, code = ?, minimum_quantity = ?, extra_data = ?
-                        WHERE id = ?
-                        ''',
-                        (
-                            new_quantity,
-                            parsed['category'],
-                            parsed['classification'],
-                            parsed['description'],
-                            parsed['corridor'],
-                            parsed['cabinet'],
-                            parsed['shelf'],
-                            parsed['price'],
-                            parsed['code'],
-                            parsed['minimum_quantity'],
-                            parsed['extra_data'],
-                            existing['id'],
-                        )
+                existing = session.query(InventoryItem).filter_by(name=parsed['name']).first()
+                if existing:
+                    if import_mode == 'update':
+                        # UPDATE mode: Replace all fields with values from Excel (no sum, just replace)
+                        existing.quantity = parsed['quantity']
+                        existing.category = parsed['category']
+                        existing.classification = parsed['classification']
+                        existing.description = parsed['description']
+                        existing.corridor = parsed['corridor']
+                        existing.cabinet = parsed['cabinet']
+                        existing.shelf = parsed['shelf']
+                        existing.price = parsed['price']
+                        existing.code = parsed['code']
+                        existing.minimum_quantity = parsed['minimum_quantity']
+                        existing.extra_data = parsed['extra_data']
+                        total_updated += 1
+                    elif import_mode == 'insert':
+                        # INSERT mode: Skip existing items, only add new ones
+                        pass
+                else:
+                    item = InventoryItem(
+                        code=parsed['code'],
+                        name=parsed['name'],
+                        category=parsed['category'],
+                        classification=parsed['classification'],
+                        quantity=parsed['quantity'],
+                        minimum_quantity=parsed['minimum_quantity'],
+                        price=parsed['price'],
+                        corridor=parsed['corridor'],
+                        cabinet=parsed['cabinet'],
+                        shelf=parsed['shelf'],
+                        description=parsed['description'],
+                        extra_data=parsed['extra_data'],
                     )
-                    total_updated += 1
-            else:
-                cursor.execute(
-                    '''
-                    INSERT INTO inventory_items (
-                        code, name, category, classification, quantity,
-                        minimum_quantity, price, corridor, cabinet,
-                        shelf, description, extra_data
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    ''',
-                    (
-                        parsed['code'],
-                        parsed['name'],
-                        parsed['category'],
-                        parsed['classification'],
-                        parsed['quantity'],
-                        parsed['minimum_quantity'],
-                        parsed['price'],
-                        parsed['corridor'],
-                        parsed['cabinet'],
-                        parsed['shelf'],
-                        parsed['description'],
-                        parsed['extra_data'],
-                    )
-                )
-                total_imported += 1
-        
-        conn.commit()
-        conn.close()
-        return total_imported, total_updated
+                    session.add(item)
+                    total_imported += 1
+            session.commit()
+            return total_imported, total_updated
+        finally:
+            session.close()
 
     def export_csv(self, export_path):
         items = self.get_all_items()

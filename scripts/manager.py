@@ -1,6 +1,7 @@
 import re
-from models import get_db_connection
 from werkzeug.security import generate_password_hash, check_password_hash
+from db import get_session
+from models import User
 
 PASSWORD_POLICY_MESSAGE = (
     'A senha deve ter pelo menos 14 caracteres, conter letra maiúscula, letra minúscula, número e um caractere especial.'
@@ -27,12 +28,12 @@ class UserManager:
         return True, None
 
     def get_all_users(self):
-        conn = get_db_connection(self.db_path)
-        cursor = conn.cursor()
-        cursor.execute('SELECT id, username, role FROM users ORDER BY username')
-        rows = cursor.fetchall()
-        conn.close()
-        return [dict(row) for row in rows]
+        session = get_session()
+        try:
+            users = session.query(User.id, User.username, User.role).order_by(User.username).all()
+            return [dict(id=u[0], username=u[1], role=u[2]) for u in users]
+        finally:
+            session.close()
 
     def add_user(self, username, password, confirm_password, role='user'):
         if not username:
@@ -41,27 +42,25 @@ class UserManager:
         if not valid:
             return False, message
         hashed_password = generate_password_hash(password)
-        conn = get_db_connection(self.db_path)
-        cursor = conn.cursor()
+        session = get_session()
         try:
-            cursor.execute(
-                'INSERT INTO users (username, password, role) VALUES (?, ?, ?)',
-                (username, hashed_password, role)
-            )
-            conn.commit()
+            user = User(username=username, password=hashed_password, role=role)
+            session.add(user)
+            session.commit()
+            return True, 'Usuário criado com sucesso.'
         except Exception:
-            conn.close()
+            session.rollback()
             return False, 'Já existe um usuário com esse nome.'
-        conn.close()
-        return True, 'Usuário criado com sucesso.'
+        finally:
+            session.close()
 
     def get_user_by_username(self, username):
-        conn = get_db_connection(self.db_path)
-        cursor = conn.cursor()
-        cursor.execute('SELECT id, username, role, password FROM users WHERE username = ?', (username,))
-        user = cursor.fetchone()
-        conn.close()
-        return user
+        session = get_session()
+        try:
+            user = session.query(User).filter_by(username=username).first()
+            return user
+        finally:
+            session.close()
 
     def verify_password(self, stored_password, candidate_password):
         is_hashed = isinstance(stored_password, str) and ':' in stored_password
@@ -74,8 +73,11 @@ class UserManager:
 
     def update_password_hash(self, username, password):
         hashed_password = generate_password_hash(password)
-        conn = get_db_connection(self.db_path)
-        cursor = conn.cursor()
-        cursor.execute('UPDATE users SET password = ? WHERE username = ?', (hashed_password, username))
-        conn.commit()
-        conn.close()
+        session = get_session()
+        try:
+            user = session.query(User).filter_by(username=username).first()
+            if user:
+                user.password = hashed_password
+                session.commit()
+        finally:
+            session.close()

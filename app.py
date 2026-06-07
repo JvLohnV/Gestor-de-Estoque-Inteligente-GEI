@@ -249,8 +249,19 @@ def inventory_movement():
 def import_inventory_file():
     files = request.files.getlist('data_files')
     import_mode = request.form.get('import_mode', 'update')
+    confirmed = request.form.get('confirmed') == 'true'
     imported = 0
     updated = 0
+
+    # Disallow 'replace' imports from the UI unless explicitly allowed in config
+    if import_mode == 'replace' and not app.config.get('ALLOW_CLEAR'):
+        flash('Modo "replace" desabilitado. Habilite ALLOW_CLEAR_INVENTORY=1 no ambiente para usar.', 'danger')
+        return redirect(url_for('inventory'))
+
+    # Require explicit confirmation for replace mode
+    if import_mode == 'replace' and not confirmed:
+        flash('⚠️ Confirmação necessária para modo SUBSTITUIÇÃO.', 'warning')
+        return redirect(url_for('inventory'))
 
     try:
         for file in files:
@@ -264,15 +275,20 @@ def import_inventory_file():
                     os.makedirs(temp_dir, exist_ok=True)
                     filepath = os.path.join(temp_dir, secure_filename(f'{uuid.uuid4()}_{file.filename}'))
                     file.save(filepath)
-                    imported_file, updated_file = manager.import_inventory_csv(filepath, import_mode)
+                    imported_file, updated_file = manager.import_inventory_csv(filepath, import_mode, confirmed=confirmed)
                     imported += imported_file
                     updated += updated_file
                 else:
-                    imported_file, updated_file = manager.import_inventory_excel([file], import_mode)
+                    imported_file, updated_file = manager.import_inventory_excel([file], import_mode, confirmed=confirmed)
                     imported += imported_file
                     updated += updated_file
 
-        flash(f'Importação concluída. {imported} novos itens e {updated} atualizados.', 'success')
+        if import_mode == 'replace':
+            flash(f'✅ Inventário SUBSTITUÍDO com sucesso! {imported} novos itens adicionados.', 'success')
+        else:
+            flash(f'Importação concluída. {imported} novos itens e {updated} atualizados.', 'success')
+    except PermissionError as e:
+        flash(f'Operação negada: {str(e)}', 'danger')
     except Exception as e:
         app.logger.exception('Erro durante a importação de arquivos')
         flash('Erro ao importar arquivos: ' + str(e), 'danger')

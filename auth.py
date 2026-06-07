@@ -1,41 +1,39 @@
 from functools import wraps
 from flask import session, redirect, url_for, flash
-from models import get_db_connection
 from werkzeug.security import check_password_hash, generate_password_hash
+from db import get_session
+from models import User
 
 
 def login_user(username, password):
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute('SELECT username, password, role FROM users WHERE username = ?', (username,))
-    user = cursor.fetchone()
-    if not user:
-        conn.close()
+    db_session = get_session()
+    try:
+        user = db_session.query(User).filter_by(username=username).first()
+        if not user:
+            return False
+
+        stored_password = user.password
+        # Detect whether the stored value looks like a password hash (e.g. 'pbkdf2:...', 'scrypt:...')
+        is_hashed = isinstance(stored_password, str) and ':' in stored_password
+        is_valid = False
+        if is_hashed:
+            try:
+                is_valid = check_password_hash(stored_password, password)
+            except Exception:
+                is_valid = False
+        else:
+            is_valid = stored_password == password
+
+        if is_valid:
+            session['username'] = user.username
+            session['role'] = user.role or 'user'
+            if not is_hashed:
+                user.password = generate_password_hash(password)
+                db_session.commit()
+            return True
         return False
-
-    stored_password = user['password']
-    # Detect whether the stored value looks like a password hash (e.g. 'pbkdf2:...', 'scrypt:...')
-    is_hashed = isinstance(stored_password, str) and ':' in stored_password
-    is_valid = False
-    if is_hashed:
-        try:
-            is_valid = check_password_hash(stored_password, password)
-        except Exception:
-            is_valid = False
-    else:
-        is_valid = stored_password == password
-
-    if is_valid:
-        session['username'] = user['username']
-        session['role'] = user['role'] or 'user'
-        if not is_hashed:
-            cursor.execute('UPDATE users SET password = ? WHERE username = ?', (generate_password_hash(password), username))
-            conn.commit()
-        conn.close()
-        return True
-
-    conn.close()
-    return False
+    finally:
+        db_session.close()
 
 
 def logout_user():
