@@ -1,16 +1,13 @@
 <#  .\start.ps1  #>
 
-# 1. Libera execuÃ§Ã£o de scripts apenas nesta sessÃ£o
+# 1. Libera execução de scripts apenas nesta sessão
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 
 # 2. Ativa o ambiente virtual
 .\venv\Scripts\Activate.ps1
 
-# 3. Instala dependÃªncias
+# 3. Instala dependências
 pip install -r requirements.txt
-
-# 4. Zera o banco de dados de inventÃ¡rio e importa os dados de amostra
-python .\scripts\load_inventory.py --reset --file .\data\sample_inventory.csv --mode replace
 
 # 5. Inicia o servidor Flask
 python app.py

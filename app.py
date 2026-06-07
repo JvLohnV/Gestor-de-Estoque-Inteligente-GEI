@@ -1,4 +1,4 @@
-import os
+﻿import os
 import json
 import tempfile
 import uuid
@@ -52,14 +52,14 @@ def login():
         if login_user(username, password):
             flash('Login efetuado com sucesso!', 'success')
             return redirect(url_for('dashboard'))
-        flash('Usuário ou senha incorretos.', 'danger')
+        flash('UsuÃ¡rio ou senha incorretos.', 'danger')
     return render_template('login.html')
 
 
 @app.route('/logout')
 def logout():
     logout_user()
-    flash('Você saiu do sistema.', 'info')
+    flash('VocÃª saiu do sistema.', 'info')
     return redirect(url_for('login'))
 
 
@@ -174,7 +174,7 @@ def inventory_add():
     shelf = request.form.get('shelf', '').strip()
     description = request.form.get('description', '').strip()
     if not name:
-        flash('Material obrigatório.', 'warning')
+        flash('Material obrigatÃ³rio.', 'warning')
         return redirect(url_for('inventory'))
     manager.add_item('', name, category, quantity, minimum_quantity, 0.0, corridor, cabinet, shelf, description, '')
     flash('Item adicionado ao estoque.', 'success')
@@ -189,7 +189,7 @@ def inventory_update_meta():
     minimum_quantity_value = request.form.get('minimum_quantity', '').strip()
     minimum_quantity = int(minimum_quantity_value) if minimum_quantity_value != '' else None
     if not category and minimum_quantity is None:
-        flash('Informe categoria ou mínimo.', 'warning')
+        flash('Informe categoria ou mÃ­nimo.', 'warning')
         return redirect(url_for('inventory'))
 
     success = manager.update_item_meta(
@@ -200,7 +200,7 @@ def inventory_update_meta():
     if success:
         flash('Dados do item atualizados.', 'success')
     else:
-        flash('Item não encontrado.', 'danger')
+        flash('Item nÃ£o encontrado.', 'danger')
     return redirect(url_for('inventory'))
 
 
@@ -209,11 +209,11 @@ def inventory_update_meta():
 def inventory_update():
     item_id = int(request.form.get('item_id', 0))
     new_quantity = int(request.form.get('new_quantity', 0))
-    result = manager.record_movement(item_id, 'ajuste', new_quantity, 'Atualização rápida')
+    result = manager.record_movement(item_id, 'ajuste', new_quantity, 'AtualizaÃ§Ã£o rÃ¡pida')
     if result is not False:
         flash('Quantidade atualizada.', 'success')
     else:
-        flash('Item não encontrado.', 'danger')
+        flash('Item nÃ£o encontrado.', 'danger')
     return redirect(url_for('inventory'))
 
 
@@ -249,49 +249,38 @@ def inventory_movement():
 def import_inventory_file():
     files = request.files.getlist('data_files')
     import_mode = request.form.get('import_mode', 'update')
-    confirmed = request.form.get('confirmed') == 'true'
     imported = 0
     updated = 0
 
-    # Disallow 'replace' imports from the UI unless explicitly allowed in config
-    if import_mode == 'replace' and not app.config.get('ALLOW_CLEAR'):
-        flash('Modo "replace" desabilitado. Habilite ALLOW_CLEAR_INVENTORY=1 no ambiente para usar.', 'danger')
-        return redirect(url_for('inventory'))
-
-    # Require explicit confirmation for replace mode
-    if import_mode == 'replace' and not confirmed:
-        flash('⚠️ Confirmação necessária para modo SUBSTITUIÇÃO.', 'warning')
+    if not files or all(f.filename == '' for f in files):
+        flash('Nenhum arquivo selecionado.', 'warning')
         return redirect(url_for('inventory'))
 
     try:
         for file in files:
-            if file and '.' in file.filename:
-                extension = file.filename.rsplit('.', 1)[1].lower()
-                if extension not in {'xlsx', 'xls', 'csv'}:
-                    continue
-
-                if extension == 'csv':
-                    temp_dir = tempfile.gettempdir()
-                    os.makedirs(temp_dir, exist_ok=True)
-                    filepath = os.path.join(temp_dir, secure_filename(f'{uuid.uuid4()}_{file.filename}'))
-                    file.save(filepath)
-                    imported_file, updated_file = manager.import_inventory_csv(filepath, import_mode, confirmed=confirmed)
-                    imported += imported_file
-                    updated += updated_file
-                else:
-                    imported_file, updated_file = manager.import_inventory_excel([file], import_mode, confirmed=confirmed)
-                    imported += imported_file
-                    updated += updated_file
+            if not file or not file.filename:
+                continue
+            extension = file.filename.rsplit('.', 1)[-1].lower() if '.' in file.filename else ''
+            if extension not in {'xlsx', 'xls', 'csv'}:
+                continue
+            if extension == 'csv':
+                temp_dir = tempfile.gettempdir()
+                filepath = os.path.join(temp_dir, secure_filename(f'{uuid.uuid4()}_{file.filename}'))
+                file.save(filepath)
+                imp, upd = manager.import_inventory_csv(filepath, import_mode)
+            else:
+                imp, upd = manager.import_inventory_excel([file], import_mode)
+            imported += imp
+            updated += upd
 
         if import_mode == 'replace':
-            flash(f'✅ Inventário SUBSTITUÍDO com sucesso! {imported} novos itens adicionados.', 'success')
+            flash(f'Inventário substituído! {imported} itens adicionados.', 'success')
         else:
-            flash(f'Importação concluída. {imported} novos itens e {updated} atualizados.', 'success')
-    except PermissionError as e:
-        flash(f'Operação negada: {str(e)}', 'danger')
+            flash(f'Importação concluída: {imported} novos e {updated} atualizados.', 'success')
+
     except Exception as e:
-        app.logger.exception('Erro durante a importação de arquivos')
-        flash('Erro ao importar arquivos: ' + str(e), 'danger')
+        app.logger.exception('Erro durante a importação')
+        flash(f'Erro ao importar: {str(e)}', 'danger')
 
     return redirect(url_for('inventory'))
 
@@ -368,3 +357,6 @@ if __name__ == '__main__':
     host = os.environ.get('HOST', '0.0.0.0')
     debug_mode = os.environ.get('FLASK_DEBUG', '0') == '1'
     app.run(debug=debug_mode, host=host, port=port)
+
+
+
