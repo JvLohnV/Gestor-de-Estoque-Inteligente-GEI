@@ -301,10 +301,10 @@
   background: #1d4ed8;
 }
 
-.btn-add-item {
+/* .btn-add-item {
   position: absolute;
   right: 76px;
-}
+} */
 
 .space-top {
   margin-top: 15px;
@@ -313,6 +313,7 @@
 .card-section {
   overflow: hidden;
   max-width: 1165px;
+  min-width: 1165px;
 }
 
 .table-wrapper {
