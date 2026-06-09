@@ -1,7 +1,11 @@
+import re
 from werkzeug.security import generate_password_hash, check_password_hash
 from db import get_session
 from models import User
 
+PASSWORD_POLICY_MESSAGE = (
+    'A senha deve ter pelo menos 14 caracteres, conter letra maiúscula, letra minúscula, número e um caractere especial.'
+)
 
 class UserManager:
     def __init__(self, db_path=None):
@@ -11,8 +15,16 @@ class UserManager:
     def validate_passwords(password, confirm_password):
         if password != confirm_password:
             return False, 'As senhas não coincidem.'
-        if not password:
-            return False, 'A senha é obrigatória.'
+        if len(password) < 14:
+            return False, PASSWORD_POLICY_MESSAGE
+        if not re.search(r'[A-Z]', password):
+            return False, PASSWORD_POLICY_MESSAGE
+        if not re.search(r'[a-z]', password):
+            return False, PASSWORD_POLICY_MESSAGE
+        if not re.search(r'\d', password):
+            return False, PASSWORD_POLICY_MESSAGE
+        if not re.search(r'[!@#$%^&*()_+\-=[\]{};:\"\\|,.<>/?]', password):
+            return False, PASSWORD_POLICY_MESSAGE
         return True, None
 
     def get_all_users(self):
