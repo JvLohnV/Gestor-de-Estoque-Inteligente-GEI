@@ -21,7 +21,6 @@ manager = InventoryManager(app.config['DATABASE'])
 dashboard_service = DashboardService(manager)
 user_manager = UserManager(app.config['DATABASE'])
 
-# Log which database path is being used (useful for diagnosing writable path issues on hosts)
 try:
     app.logger.info(f"Database path in use: {app.config.get('DATABASE')}")
 except Exception:
@@ -34,6 +33,7 @@ def inject_notifications():
     return {
         'low_stock_count': len(low_stock_items),
         'low_stock_notifications': low_stock_items,
+        'is_admin': session.get('role') == 'admin',
     }
 
 
@@ -52,14 +52,14 @@ def login():
         if login_user(username, password):
             flash('Login efetuado com sucesso!', 'success')
             return redirect(url_for('dashboard'))
-        flash('UsuÃ¡rio ou senha incorretos.', 'danger')
+        flash('Usuário ou senha incorretos.', 'danger')
     return render_template('login.html')
 
 
 @app.route('/logout')
 def logout():
     logout_user()
-    flash('VocÃª saiu do sistema.', 'info')
+    flash('Você saiu do sistema.', 'info')
     return redirect(url_for('login'))
 
 
@@ -85,6 +85,21 @@ def manager_page():
     users = user_manager.get_all_users()
     return render_template('manager.html', users=users)
 
+@app.route('/manager/toggle-role', methods=['POST'])
+@require_admin
+def toggle_user_role():
+    user_id = int(request.form.get('user_id', 0))
+    success, message = user_manager.toggle_role(user_id)
+    flash(message, 'success' if success else 'danger')
+    return redirect(url_for('manager_page'))
+
+@app.route('/manager/delete-user', methods=['POST'])
+@require_admin
+def delete_user():
+    user_id = int(request.form.get('user_id', 0))
+    success, message = user_manager.delete_user(user_id)
+    flash(message, 'success' if success else 'danger')
+    return redirect(url_for('manager_page'))
 
 @app.route('/inventory', methods=['GET'])
 @require_login
@@ -163,7 +178,7 @@ def inventory_movements():
 
 
 @app.route('/inventory/add', methods=['POST'])
-@require_login
+@require_admin
 def inventory_add():
     name = request.form.get('name', '').strip()
     category = request.form.get('category', '').strip()
@@ -174,7 +189,7 @@ def inventory_add():
     shelf = request.form.get('shelf', '').strip()
     description = request.form.get('description', '').strip()
     if not name:
-        flash('Material obrigatÃ³rio.', 'warning')
+        flash('Material obrigatório.', 'warning')
         return redirect(url_for('inventory'))
     manager.add_item('', name, category, quantity, minimum_quantity, 0.0, corridor, cabinet, shelf, description, '')
     flash('Item adicionado ao estoque.', 'success')
@@ -189,7 +204,7 @@ def inventory_update_meta():
     minimum_quantity_value = request.form.get('minimum_quantity', '').strip()
     minimum_quantity = int(minimum_quantity_value) if minimum_quantity_value != '' else None
     if not category and minimum_quantity is None:
-        flash('Informe categoria ou mÃ­nimo.', 'warning')
+        flash('Informe categoria ou mínimo.', 'warning')
         return redirect(url_for('inventory'))
 
     success = manager.update_item_meta(
@@ -200,7 +215,7 @@ def inventory_update_meta():
     if success:
         flash('Dados do item atualizados.', 'success')
     else:
-        flash('Item nÃ£o encontrado.', 'danger')
+        flash('Item não encontrado.', 'danger')
     return redirect(url_for('inventory'))
 
 
@@ -209,11 +224,11 @@ def inventory_update_meta():
 def inventory_update():
     item_id = int(request.form.get('item_id', 0))
     new_quantity = int(request.form.get('new_quantity', 0))
-    result = manager.record_movement(item_id, 'ajuste', new_quantity, 'AtualizaÃ§Ã£o rÃ¡pida')
+    result = manager.record_movement(item_id, 'ajuste', new_quantity, 'Atualização rápida')
     if result is not False:
         flash('Quantidade atualizada.', 'success')
     else:
-        flash('Item nÃ£o encontrado.', 'danger')
+        flash('Item não encontrado.', 'danger')
     return redirect(url_for('inventory'))
 
 
@@ -245,7 +260,7 @@ def inventory_movement():
 
 
 @app.route('/inventory/import', methods=['POST'])
-@require_login
+@require_admin
 def import_inventory_file():
     files = request.files.getlist('data_files')
     import_mode = request.form.get('import_mode', 'update')
@@ -288,7 +303,6 @@ def import_inventory_file():
 @app.route('/inventory/export')
 @require_login
 def export_inventory():
-    # Compatibilidade com chamadas antigas no template.
     return redirect(url_for('export_inventory_csv'))
 
 
@@ -318,9 +332,7 @@ def api_create_admin():
 
 @app.route('/api/notifications', methods=['GET'])
 def api_notifications():
-    # Return low stock notifications for frontend consumption
     items = manager.get_low_stock_items()
-    # Serialize rows to plain dicts suitable for JSON
     simplified = [
         {
             'id': item.get('id'),
@@ -343,7 +355,6 @@ def api_db_status():
     db_path = app.config.get('DATABASE')
     writable = False
     try:
-        # try opening for append to test write permission
         with open(db_path, 'a'):
             pass
         writable = True
@@ -357,6 +368,3 @@ if __name__ == '__main__':
     host = os.environ.get('HOST', '0.0.0.0')
     debug_mode = os.environ.get('FLASK_DEBUG', '0') == '1'
     app.run(debug=debug_mode, host=host, port=port)
-
-
-

@@ -13,6 +13,8 @@
 </section>
 
 <div class="home-panels">
+
+  <!-- Lista de usuários -->
   <section class="panel-card">
     <div class="panel-title">
       <h3>Usuários cadastrados</h3>
@@ -20,27 +22,38 @@
     <div class="notice-list">
       {% for user in users %}
       <div class="notice-item">
-        <strong>{{ user.username }}</strong>
-        <span>Perfil: {{ user.role }}</span>
+        <div class="notice-item-info">
+          <strong>{{ user.username }}</strong>
+          <span class="role-badge {{ user.role }}">
+            {% if user.role == 'admin' %}👑 Administrador{% else %}👤 Usuário{% endif %}
+          </span>
+        </div>
+        <button
+          class="btn-manage"
+          onclick="openManageModal('{{ user.id }}', '{{ user.username }}', '{{ user.role }}')"
+        >
+          Gerenciar
+        </button>
       </div>
       {% endfor %}
     </div>
   </section>
 
-  <section class="panel-card">
+  <!-- Formulário de criação -->
+  <section class="panel-card-manager-user">
     <div class="panel-title">
       <h3>Adicionar usuário</h3>
       <p>Senhas devem ter 14 caracteres, letras maiúsculas e minúsculas, números e especial.</p>
     </div>
     <form method="post" class="form-section">
       <label for="username">Usuário</label>
-      <input type="text" id="username" name="username" required />
+      <input class="space-input" type="text" id="username" name="username" required />
 
       <label for="password">Senha</label>
-      <input type="password" id="password" name="password" required />
+      <input class="space-input" type="password" id="password" name="password" required />
 
       <label for="confirm_password">Confirme a senha</label>
-      <input type="password" id="confirm_password" name="confirm_password" required />
+      <input class="space-input" type="password" id="confirm_password" name="confirm_password" required />
 
       <label for="role">Perfil</label>
       <select id="role" name="role">
@@ -51,5 +64,114 @@
       <button type="submit" class="btn btn-primary">Criar usuário</button>
     </form>
   </section>
+
 </div>
+
+<!-- Modal de gerenciamento -->
+<div class="modal-overlay" id="manageModal">
+  <div class="modal-box">
+
+    <!-- Cabeçalho -->
+    <div class="modal-header">
+      <div>
+        <h3 id="modalUsername">Gerenciar usuário</h3>
+        <p id="modalRoleLabel"></p>
+      </div>
+      <button class="modal-close" onclick="closeManageModal()">×</button>
+    </div>
+
+    <!-- Tela principal com ações -->
+    <div class="modal-main" id="modalMain">
+      <div class="modal-actions">
+        <button class="btn-action" id="btnToggleRole" onclick="showConfirm('role')">
+          <span class="btn-action-icon" id="toggleRoleIcon"></span>
+          <span id="toggleRoleLabel">Alterar perfil</span>
+        </button>
+        <button class="btn-action danger" onclick="showConfirm('delete')">
+          <span class="btn-action-icon"></span>
+          Deletar usuário
+        </button>
+      </div>
+    </div>
+
+    <!-- Tela de confirmação de troca de perfil -->
+    <div class="modal-confirm" id="confirmRole">
+      <p class="confirm-text" id="confirmRoleText"></p>
+      <div class="confirm-buttons">
+        <button class="btn-back" onclick="showMain()">← Voltar</button>
+        <form method="POST" action="{{ url_for('toggle_user_role') }}">
+          <input type="hidden" name="user_id" id="confirmRoleUserId" />
+          <button type="submit" class="btn-confirm-action purple">Confirmar</button>
+        </form>
+      </div>
+    </div>
+
+    <!-- Tela de confirmação de deleção -->
+    <div class="modal-confirm" id="confirmDelete">
+      <p class="confirm-text" id="confirmDeleteText"></p>
+      <div class="confirm-buttons">
+        <button class="btn-back" onclick="showMain()">← Voltar</button>
+        <form method="POST" action="{{ url_for('delete_user') }}">
+          <input type="hidden" name="user_id" id="confirmDeleteUserId" />
+          <button type="submit" class="btn-confirm-action red">Deletar</button>
+        </form>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+  let currentUserId = null;
+  let currentRole = null;
+
+  function openManageModal(userId, username, role) {
+    currentUserId = userId;
+    currentRole = role;
+
+    document.getElementById('modalUsername').textContent = username;
+    document.getElementById('modalRoleLabel').textContent =
+      role === 'admin' ? '👑 Administrador' : '👤 Usuário padrão';
+
+    const newRole = role === 'admin' ? 'Usuário padrão' : 'Administrador';
+    const icon = role === 'admin' ? '👤' : '👑';
+    document.getElementById('toggleRoleIcon').textContent = icon;
+    document.getElementById('toggleRoleLabel').textContent = 'Tornar ' + newRole;
+
+    showMain();
+    document.getElementById('manageModal').classList.add('open');
+  }
+
+  function closeManageModal() {
+    document.getElementById('manageModal').classList.remove('open');
+  }
+
+  function showMain() {
+    document.getElementById('modalMain').classList.remove('hidden');
+    document.getElementById('confirmRole').classList.remove('active');
+    document.getElementById('confirmDelete').classList.remove('active');
+  }
+
+  function showConfirm(type) {
+    const username = document.getElementById('modalUsername').textContent;
+    document.getElementById('modalMain').classList.add('hidden');
+
+    if (type === 'role') {
+      const newRole = currentRole === 'admin' ? 'usuário padrão' : 'administrador';
+      document.getElementById('confirmRoleText').textContent =
+        'Tem certeza que deseja mudar o perfil de "' + username + '" para ' + newRole + '?';
+      document.getElementById('confirmRoleUserId').value = currentUserId;
+      document.getElementById('confirmRole').classList.add('active');
+    } else {
+      document.getElementById('confirmDeleteText').textContent =
+        'Tem certeza que deseja deletar o usuário "' + username + '"? Esta ação é irreversível.';
+      document.getElementById('confirmDeleteUserId').value = currentUserId;
+      document.getElementById('confirmDelete').classList.add('active');
+    }
+  }
+
+  document.getElementById('manageModal').addEventListener('click', function(e) {
+    if (e.target === this) closeManageModal();
+  });
+</script>
 {% endblock %}

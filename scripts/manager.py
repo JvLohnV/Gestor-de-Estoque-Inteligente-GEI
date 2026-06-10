@@ -53,6 +53,38 @@ class UserManager:
             return False, 'Já existe um usuário com esse nome.'
         finally:
             session.close()
+            
+    def toggle_role(self, user_id):
+        session = get_session()
+        try:
+            user = session.query(User).filter_by(id=user_id).first()
+            if not user:
+                return False, 'Usuário não encontrado.'
+            user.role = 'user' if user.role == 'admin' else 'admin'
+            session.commit()
+            new_role = 'administrador' if user.role == 'admin' else 'usuário padrão'
+            return True, f'Perfil de "{user.username}" alterado para {new_role}.'
+        except Exception:
+            session.rollback()
+            return False, 'Erro ao alterar perfil.'
+        finally:
+            session.close()
+
+    def delete_user(self, user_id):
+        session = get_session()
+        try:
+            user = session.query(User).filter_by(id=user_id).first()
+            if not user:
+                return False, 'Usuário não encontrado.'
+            username = user.username
+            session.delete(user)
+            session.commit()
+            return True, f'Usuário "{username}" deletado com sucesso.'
+        except Exception:
+            session.rollback()
+            return False, 'Erro ao deletar usuário.'
+        finally:
+            session.close()
 
     def get_user_by_username(self, username):
         session = get_session()

@@ -613,11 +613,18 @@
 }
 
 .close-modal {
+  display: flex;
+  justify-content: center;
+  
   border: none;
   background: transparent;
-
-  font-size: 28px;
+  font-size: 27px;
   cursor: pointer;
+  width: 70px;
+  height: 40px;
+  padding: 0;
+  align-items: start;
+  margin-bottom: 37px;
 }
 
 .btn-add-item {
